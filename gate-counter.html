@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gate Counter</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--text:#1d1d1b;--muted:#6b6a64;--accent:#1f7a4d;--accent-text:#fff;--line:#e2e0d8;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151514;--card:#212120;--text:#f2f1ec;--muted:#a09f97;--accent:#3fae7a;--accent-text:#08140e;--line:#33332f}}
+:root[data-theme="dark"]{--bg:#151514;--card:#212120;--text:#f2f1ec;--muted:#a09f97;--accent:#3fae7a;--accent-text:#08140e;--line:#33332f}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;padding:16px;box-sizing:border-box;gap:14px;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.total{text-align:center;margin-top:8px}
+.total .label{color:var(--muted);font-size:14px;letter-spacing:.08em;text-transform:uppercase}
+.total .num{font-size:clamp(72px,26vw,140px);font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.row{display:flex;gap:10px;width:100%;max-width:480px}
+.stat{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;text-align:center}
+.stat b{display:block;font-size:24px;font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:12px}
+#add{flex:1;width:100%;max-width:480px;min-height:180px;border:0;border-radius:24px;background:var(--accent);color:var(--accent-text);font-size:40px;font-weight:700;cursor:pointer;transition:transform .06s}
+#add:active{transform:scale(.97)}
+#add:disabled{opacity:.4}
+#undo{background:none;border:1px solid var(--line);color:var(--text);border-radius:12px;padding:12px 18px;font-size:16px;cursor:pointer;max-width:480px;width:100%}
+#undo:disabled{opacity:.4}
+#gates{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;max-width:480px}
+.g{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:10px;text-align:center;cursor:pointer;color:var(--text);font:inherit}
+.g.sel{border-color:var(--accent)}
+.g .gn{display:block;font-size:13px;color:var(--muted)}
+.g b{display:block;font-size:26px;font-variant-numeric:tabular-nums}
+#msg{color:var(--muted);font-size:13px;text-align:center;min-height:18px}
+</style>
+</head>
+<body>
+<div class="total"><div class="label">Total in</div><div class="num" id="total">–</div></div>
+<div id="gates"></div>
+<div class="row">
+  <div class="stat"><b id="mine">0</b><span>You counted here</span></div>
+  <div class="stat"><b id="people">0</b><span>Counters active</span></div>
+</div>
+<button id="add" disabled>+1 Entry</button>
+<button id="undo" disabled>Undo last (−1)</button>
+<div id="msg">Connecting…</div>
+<script>
+(function(){
+  var GATES=[['baird','Baird Terrace Gate'],['cowie','Cowie Bridge'],['main','Main Gate'],['ury','Ury Bridge']];
+  var totalEl=document.getElementById('total'),mineEl=document.getElementById('mine'),peopleEl=document.getElementById('people'),addBtn=document.getElementById('add'),undoBtn=document.getElementById('undo'),msg=document.getElementById('msg'),gatesEl=document.getElementById('gates');
+  var mine={},others={},peopleN=0,ready=false,dirty=false,writing=false,myDoc=null,myId=null,sel='main';
+  GATES.forEach(function(g){mine[g[0]]=0;others[g[0]]=0});
+  try{var saved=localStorage.getItem('gate');if(saved&&mine.hasOwnProperty(saved))sel=saved;}catch(e){}
+  var chips={};
+  GATES.forEach(function(g){
+    var b=document.createElement('button');b.className='g';b.innerHTML='<span class="gn"></span><b>–</b>';
+    b.firstChild.textContent=g[1];
+    b.addEventListener('click',function(){sel=g[0];try{localStorage.setItem('gate',sel)}catch(e){}render();});
+    gatesEl.appendChild(b);chips[g[0]]=b;
+  });
+  function gname(k){return GATES.filter(function(g){return g[0]===k})[0][1]}
+  function render(){
+    var tot=0;
+    GATES.forEach(function(g){
+      var k=g[0],v=mine[k]+others[k];tot+=v;
+      chips[k].lastChild.textContent=ready?v:'–';
+      chips[k].className='g'+(k===sel?' sel':'');
+    });
+    totalEl.textContent=ready?tot:'–';
+    mineEl.textContent=mine[sel];peopleEl.textContent=peopleN;
+    addBtn.textContent='+1 Entry · '+gname(sel);
+    undoBtn.disabled=!ready||mine[sel]<=0;
+  }
+  function flush(){
+    if(writing||!dirty||!myDoc)return;
+    writing=true;dirty=false;var val=JSON.parse(JSON.stringify(mine));
+    myDoc.set({gates:val,t:Date.now()}).then(function(){msg.textContent='Synced';}).catch(function(){
+      msg.textContent='Could not save – check connection or access.';dirty=true;
+    }).then(function(){writing=false;if(dirty)setTimeout(flush,500);});
+  }
+  function change(d){
+    if(!ready)return;
+    if(d<0&&mine[sel]<=0)return;
+    mine[sel]+=d;dirty=true;render();flush();
+    if(navigator.vibrate)try{navigator.vibrate(15)}catch(e){}
+  }
+  addBtn.addEventListener('click',function(){change(1)});
+  undoBtn.addEventListener('click',function(){change(-1)});
+  async function init(){
+    try{
+      var user=await claude.use('user'),db=await claude.use('db');
+      if(!db||!user){msg.textContent='Sign in to Claude with the account you were invited with to use this counter.';return;}
+      myId=await user.id();
+      if(!myId){msg.textContent='You have view-only access. Ask the organiser for contributor access.';return;}
+      var col=db.collection('counts');
+      myDoc=col.doc(myId);
+      col.onSnapshot(function(snap){
+        var o={},n=0;GATES.forEach(function(g){o[g[0]]=0});
+        (snap.docs||[]).forEach(function(d){
+          var data=d.data(),gs=(data&&data.gates)||{},any=0;
+          GATES.forEach(function(g){var c=Number(gs[g[0]])||0;any+=c;
+            if(d.id===myId){if(!dirty&&!writing)mine[g[0]]=c;}else o[g[0]]+=c;});
+          if(any>0&&d.id!==myId)n++;
+        });
+        others=o;
+        var m=0;GATES.forEach(function(g){m+=mine[g[0]]});
+        peopleN=n+(m>0?1:0);
+        if(!ready){ready=true;addBtn.disabled=false;msg.textContent='Live – counts update for everyone';}
+        render();
+      },function(e){msg.textContent='Could not connect ('+(e&&e.code||'error')+').';});
+    }catch(e){msg.textContent='Could not start the counter.';}
+  }
+  render();
+  init();
+})();
+</script>
+</body>
+</html>
